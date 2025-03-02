@@ -11,6 +11,19 @@ import { RefreshCw, Save, ArrowRight } from "lucide-react"
 import { cn } from "@/lib/utils"
 import { PreviewDialog } from "./preview-dialog"
 
+interface OutlineData {
+  theme: string
+  heading: string
+  outline: {
+    id: string
+    content: string
+    children: {
+      id: string
+      content: string
+    }[]
+  }[]
+}
+
 interface Section {
   id: string
   title: string
@@ -97,47 +110,69 @@ export function ContentEditor() {
   const searchParams = useSearchParams()
   const { toast } = useToast()
   const [sections, setSections] = useState<Section[]>([])
-  const [activeSection, setActiveSection] = useState<string>("")
+  const [currentSectionId, setCurrentSectionId] = useState<string>(sections[0]?.id)
   const [isSaving, setIsSaving] = useState(false)
   const [isPreviewOpen, setIsPreviewOpen] = useState(false)
   const [hasUnsavedChanges, setHasUnsavedChanges] = useState(false)
+  const [isLoading, setIsLoading] = useState(false)
+  const [error, setError] = useState<string | null>(null)
 
   // 記事IDの取得
   const articleId = searchParams.get("id") || `article-${Date.now()}`
 
-  // 初期データの読み込み
+  // アウトラインデータの読み込み
   useEffect(() => {
-    const loadArticle = () => {
-      // 既存の記事を確認
-      const savedArticles = localStorage.getItem(ARTICLES_KEY)
-      if (savedArticles) {
-        const articles: Article[] = JSON.parse(savedArticles)
-        const article = articles.find((a) => a.id === articleId)
-        if (article) {
-          setSections(article.sections)
-          setActiveSection(article.sections[0]?.id || "")
-          return
-        }
-      }
-
-      // 一時保存データを確認
-      const savedSections = localStorage.getItem(STORAGE_KEY)
-      if (savedSections) {
-        const parsed = JSON.parse(savedSections)
-        setSections(parsed)
-        setActiveSection(parsed[0]?.id || "")
-        return
-      }
-
-      // 新規作成の場合はダミーデータを使用
-      setSections(initialSections)
-      setActiveSection(initialSections[0]?.id || "")
-      // 新規作成時は編集可能な状態にする
-      setHasUnsavedChanges(true)
+    const savedOutline = localStorage.getItem("current-outline")
+    if (!savedOutline) {
+      toast({
+        variant: "destructive",
+        title: "エラー",
+        description: "アウトラインデータが見つかりません。",
+      })
+      router.push("/")
+      return
     }
 
-    loadArticle()
-  }, [articleId])
+    const outlineData: OutlineData = JSON.parse(savedOutline)
+    
+    // アウトラインからセクションを生成
+    const newSections: Section[] = []
+    
+    // メインセクションの追加
+    newSections.push({
+      id: "heading",
+      title: outlineData.heading,
+      level: 1,
+      content: "",
+      isGenerating: false,
+    })
+
+    // アウトラインの各項目をセクションに変換
+    outlineData.outline.forEach((item, index) => {
+      // 中項目の追加
+      newSections.push({
+        id: `main-${index}`,
+        title: item.content,
+        level: 1,
+        content: "",
+        isGenerating: false,
+      })
+
+      // 小項目の追加
+      item.children.forEach((child, childIndex) => {
+        newSections.push({
+          id: `sub-${index}-${childIndex}`,
+          title: child.content,
+          level: 2,
+          content: "",
+          isGenerating: false,
+        })
+      })
+    })
+
+    setSections(newSections)
+    setCurrentSectionId(newSections[0]?.id)
+  }, [router, toast])
 
   const handleContentChange = useCallback((id: string, content: string) => {
     setSections((prev) => prev.map((section) => (section.id === id ? { ...section, content } : section)))
@@ -153,8 +188,28 @@ export function ContentEditor() {
       setSections((prev) => prev.map((s) => (s.id === id ? { ...s, isGenerating: true } : s)))
 
       try {
-        // ダミーの生成処理
-        await new Promise((resolve) => setTimeout(resolve, 2000))
+        const response = await fetch("/api/generate-content", {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+          },
+          body: JSON.stringify({
+            theme: section.title,
+            heading: section.title,
+            outline: [{
+              id: section.id,
+              content: section.title,
+              children: []
+            }]
+          }),
+        })
+
+        if (!response.ok) {
+          throw new Error("本文の生成に失敗しました")
+        }
+
+        const data = await response.json()
+        const generatedContent = data.choices[0].message.content
 
         setSections((prev) =>
           prev.map((s) =>
@@ -162,26 +217,16 @@ export function ContentEditor() {
               ? {
                   ...s,
                   isGenerating: false,
-                  content: `これは${s.title}のための新しく生成された本文です。
-
-例えば、このセクションでは以下のような内容を説明します：
-
-1. ${s.title}の基本概念
-2. 具体的な使用例とベストプラクティス
-3. よくある問題とその解決方法
-4. 応用的な使い方とヒント
-
-これらの内容を通じて、読者が${s.title}について深く理解できるように解説していきます。`,
+                  content: generatedContent,
                 }
               : s,
           ),
         )
-        // 再生成後は未保存状態にする
         setHasUnsavedChanges(true)
 
         toast({
-          title: "再生成完了",
-          description: "文章の再生成が完了しました。",
+          title: "生成完了",
+          description: "文章の生成が完了しました。",
         })
       } catch (error) {
         toast({
@@ -189,6 +234,9 @@ export function ContentEditor() {
           title: "エラー",
           description: "文章の生成中にエラーが発生しました。",
         })
+        setSections((prev) =>
+          prev.map((s) => (s.id === id ? { ...s, isGenerating: false } : s))
+        )
       }
     },
     [sections, toast],
@@ -256,95 +304,89 @@ export function ContentEditor() {
     })
   }, [hasUnsavedChanges, sections, isSaving])
 
-  const currentSection = sections.find((s) => s.id === activeSection)
+  const currentSection = sections.find((s) => s.id === currentSectionId)
 
   return (
-    <div className="grid grid-cols-1 lg:grid-cols-[250px_1fr_250px] gap-4">
-      {/* 左サイドバー：目次ナビゲーション */}
-      <div className="lg:h-[calc(100vh-16rem)]">
-        <Card className="h-full">
-          <ScrollArea className="h-full">
-            <div className="p-4 space-y-2">
-              {sections.map((section) => (
-                <button
-                  key={section.id}
-                  onClick={() => setActiveSection(section.id)}
-                  className={cn(
-                    "w-full text-left px-2 py-1.5 rounded-md text-sm transition-colors",
-                    "hover:bg-muted",
-                    section.id === activeSection && "bg-muted",
-                    section.isGenerating && "text-muted-foreground",
-                  )}
-                  style={{ paddingLeft: `${section.level * 0.75}rem` }}
-                >
-                  {section.title}
-                  {hasUnsavedChanges && section.id === activeSection && (
-                    <span className="ml-2 text-xs text-muted-foreground">●</span>
-                  )}
-                </button>
-              ))}
-            </div>
-          </ScrollArea>
+    <div className="grid grid-cols-[300px_1fr] gap-4">
+      {/* 左サイドバー：セクション一覧 */}
+      <div className="space-y-4">
+        <Card className="p-4">
+          <div className="space-y-2">
+            {sections.map((section) => (
+              <button
+                key={section.id}
+                onClick={() => setCurrentSectionId(section.id)}
+                className={cn(
+                  "w-full text-left px-3 py-2 rounded-md hover:bg-secondary/80 transition-colors",
+                  section.id === currentSectionId && "bg-secondary",
+                  section.level === 2 && "ml-4 text-sm"
+                )}
+              >
+                {section.title}
+              </button>
+            ))}
+          </div>
         </Card>
       </div>
 
-      {/* 中央：エディター */}
-      <div className="lg:h-[calc(100vh-16rem)]">
-        <Card className="h-full">
-          <ScrollArea className="h-full">
-            <div className="p-4">
-              {currentSection && (
-                <div className="space-y-4">
-                  <div className="flex items-center justify-between">
-                    <h2 className="text-lg font-semibold">{currentSection.title}</h2>
-                    <Button
-                      variant="outline"
-                      size="sm"
-                      onClick={() => handleRegenerate(currentSection.id)}
-                      disabled={currentSection.isGenerating}
-                      className="gap-2"
-                    >
-                      <RefreshCw className={cn("h-4 w-4", currentSection.isGenerating && "animate-spin")} />
-                      再生成
-                    </Button>
+      {/* メインコンテンツ：エディターとプレビュー */}
+      <div className="grid grid-cols-2 gap-4">
+        {/* エディター（左側） */}
+        <div className="space-y-4">
+          <Card className="h-[calc(100vh-2rem)]">
+            <ScrollArea className="h-full">
+              <div className="p-4">
+                {currentSection && (
+                  <div className="space-y-4">
+                    <div className="flex items-center justify-between">
+                      <h2 className="text-lg font-semibold">{currentSection.title}</h2>
+                      <Button
+                        variant="outline"
+                        size="sm"
+                        onClick={() => handleRegenerate(currentSection.id)}
+                        disabled={currentSection.isGenerating}
+                        className="gap-2"
+                      >
+                        <RefreshCw className={cn("h-4 w-4", currentSection.isGenerating && "animate-spin")} />
+                        {currentSection.isGenerating ? "生成中..." : "生成"}
+                      </Button>
+                    </div>
+                    <Textarea
+                      value={currentSection.content}
+                      onChange={(e) => handleContentChange(currentSection.id, e.target.value)}
+                      placeholder="本文を入力..."
+                      className="min-h-[calc(100vh-8rem)] resize-none"
+                    />
                   </div>
-                  <Textarea
-                    value={currentSection.content}
-                    onChange={(e) => handleContentChange(currentSection.id, e.target.value)}
-                    placeholder="本文を入力..."
-                    className="min-h-[500px] resize-none"
-                  />
-                </div>
-              )}
-            </div>
-          </ScrollArea>
-        </Card>
+                )}
+              </div>
+            </ScrollArea>
+          </Card>
+        </div>
+
+        {/* プレビュー（右側） */}
+        <div className="space-y-4">
+          <Card className="h-[calc(100vh-2rem)]">
+            <ScrollArea className="h-full">
+              <div className="p-4 prose prose-sm max-w-none">
+                {currentSection && (
+                  <>
+                    <h2 className={cn(
+                      "font-semibold mb-4",
+                      currentSection.level === 2 ? "text-lg" : "text-xl"
+                    )}>
+                      {currentSection.title}
+                    </h2>
+                    <div className="whitespace-pre-wrap leading-relaxed">
+                      {currentSection.content}
+                    </div>
+                  </>
+                )}
+              </div>
+            </ScrollArea>
+          </Card>
+        </div>
       </div>
-
-      {/* 右サイドバー：コントロール */}
-      <Card className="p-4 space-y-4">
-        <div className="space-y-2">
-          <h3 className="text-sm font-medium">文字数</h3>
-          <p className="text-2xl font-bold">
-            {currentSection ? currentSection.content.length : 0}
-            <span className="text-sm text-muted-foreground ml-1">文字</span>
-          </p>
-        </div>
-
-        <div className="space-y-2">
-          <Button className="w-full gap-2" onClick={handleSave} disabled={isSaving || !hasUnsavedChanges}>
-            <Save className={cn("h-4 w-4", isSaving && "animate-spin")} />
-            {isSaving ? "保存中..." : "記事を完了"}
-            {hasUnsavedChanges && <span className="ml-2 text-xs">●</span>}
-          </Button>
-          <Button variant="outline" className="w-full gap-2" onClick={() => setIsPreviewOpen(true)}>
-            プレビュー
-            <ArrowRight className="h-4 w-4" />
-          </Button>
-        </div>
-      </Card>
-
-      <PreviewDialog open={isPreviewOpen} onOpenChange={setIsPreviewOpen} sections={sections} />
     </div>
   )
 }
