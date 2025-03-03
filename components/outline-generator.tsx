@@ -1,7 +1,6 @@
 "use client"
 
 import { useState } from "react"
-import { useRouter } from "next/navigation"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle, CardFooter } from "@/components/ui/card"
 import { Button } from "@/components/ui/button"
 import { ArrowLeft, ArrowRight, ChevronRight, Plus, Minus, ChevronUp, ChevronDown } from "lucide-react"
@@ -98,7 +97,6 @@ const OutlineItemComponent = ({
 }
 
 export function OutlineGenerator({ theme, heading, onBack, onNext }: OutlineGeneratorProps) {
-  const router = useRouter()
   const [isLoading, setIsLoading] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const [outline, setOutline] = useState<OutlineItem[]>([])
@@ -218,8 +216,8 @@ export function OutlineGenerator({ theme, heading, onBack, onNext }: OutlineGene
       heading,
       outline
     }))
-    // 本文生成ページに遷移
-    router.push("/content")
+    // 親コンポーネントのonNext関数を呼び出す
+    onNext(outline)
   }
 
   return (

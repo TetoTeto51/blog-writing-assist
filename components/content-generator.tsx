@@ -3,10 +3,13 @@
 import { useState } from "react"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle, CardFooter } from "@/components/ui/card"
 import { Button } from "@/components/ui/button"
-import { ArrowLeft, ArrowRight, ChevronRight } from "lucide-react"
+import { ArrowLeft, Save, ChevronRight } from "lucide-react"
 import { LoadingSpinner } from "@/components/ui/loading-spinner"
 import { ScrollArea } from "@/components/ui/scroll-area"
 import { Textarea } from "@/components/ui/textarea"
+import ReactMarkdown from "react-markdown"
+import remarkGfm from "remark-gfm"
+import { useRouter } from "next/navigation"
 
 interface OutlineItem {
   id: string
@@ -20,13 +23,14 @@ interface ContentGeneratorProps {
   heading: string
   outline: OutlineItem[]
   onBack: () => void
-  onNext: () => void
 }
 
-export function ContentGenerator({ theme, heading, outline, onBack, onNext }: ContentGeneratorProps) {
+export function ContentGenerator({ theme, heading, outline, onBack }: ContentGeneratorProps) {
+  const router = useRouter()
   const [isLoading, setIsLoading] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const [content, setContent] = useState<string>("")
+  const [isSaving, setIsSaving] = useState(false)
 
   const generateContent = async () => {
     setIsLoading(true)
@@ -62,6 +66,40 @@ export function ContentGenerator({ theme, heading, outline, onBack, onNext }: Co
 
   const handleContentChange = (e: React.ChangeEvent<HTMLTextAreaElement>) => {
     setContent(e.target.value)
+  }
+
+  const handleSave = async () => {
+    setIsSaving(true)
+    try {
+      // 記事データの作成
+      const article = {
+        id: `article-${Date.now()}`,
+        title: heading,
+        content: content,
+        theme: theme,
+        outline: outline,
+        createdAt: new Date().toISOString(),
+        status: "draft"
+      }
+
+      // 既存の記事一覧を取得
+      const savedArticles = localStorage.getItem("saved-articles")
+      const articles = savedArticles ? JSON.parse(savedArticles) : []
+
+      // 新しい記事を追加
+      articles.push(article)
+
+      // 記事一覧を保存
+      localStorage.setItem("saved-articles", JSON.stringify(articles))
+
+      // 記事一覧ページに遷移
+      router.push("/articles")
+    } catch (error) {
+      setError("記事の保存中にエラーが発生しました")
+      console.error("Error saving article:", error)
+    } finally {
+      setIsSaving(false)
+    }
   }
 
   return (
@@ -138,9 +176,11 @@ export function ContentGenerator({ theme, heading, outline, onBack, onNext }: Co
                 <div className="space-y-2">
                   <Card>
                     <ScrollArea className="h-[600px] w-full rounded-md border p-4">
-                      <div className="prose prose-sm max-w-none">
+                      <div className="prose prose-sm max-w-none dark:prose-invert">
                         <h1 className="text-2xl font-bold mb-4">{heading}</h1>
-                        <div className="whitespace-pre-wrap">{content}</div>
+                        <ReactMarkdown remarkPlugins={[remarkGfm]}>
+                          {content}
+                        </ReactMarkdown>
                       </div>
                     </ScrollArea>
                   </Card>
@@ -160,12 +200,12 @@ export function ContentGenerator({ theme, heading, outline, onBack, onNext }: Co
           戻る
         </Button>
         <Button
-          onClick={onNext}
-          disabled={!content}
+          onClick={handleSave}
+          disabled={!content || isSaving}
           className="flex items-center gap-2"
         >
-          次へ進む
-          <ArrowRight className="h-4 w-4" />
+          <Save className="h-4 w-4" />
+          {isSaving ? "保存中..." : "保存する"}
         </Button>
       </CardFooter>
     </Card>

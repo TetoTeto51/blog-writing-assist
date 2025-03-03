@@ -1,11 +1,9 @@
 "use client"
 
 import { useState } from "react"
-import { Card, CardContent, CardDescription, CardHeader, CardTitle, CardFooter } from "@/components/ui/card"
+import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
 import { Button } from "@/components/ui/button"
 import { Textarea } from "@/components/ui/textarea"
-import { RadioGroup, RadioGroupItem } from "@/components/ui/radio-group"
-import { ArrowRight } from "lucide-react"
 import { LoadingSpinner } from "@/components/ui/loading-spinner"
 import axios from "axios"
 
@@ -18,15 +16,14 @@ interface HeadingResponse {
 }
 
 interface ThemeInputProps {
-  onSubmit: (theme: string, heading: string) => void
+  onSubmit: (theme: string) => void
+  onHeadingsGenerated: (headings: string[]) => void
 }
 
-export function ThemeInput({ onSubmit }: ThemeInputProps) {
+export function ThemeInput({ onSubmit, onHeadingsGenerated }: ThemeInputProps) {
   const [theme, setTheme] = useState("")
   const [isLoading, setIsLoading] = useState(false)
   const [error, setError] = useState<string | null>(null)
-  const [headings, setHeadings] = useState<string[]>([])
-  const [selectedHeading, setSelectedHeading] = useState<string>("")
 
   const generateHeadings = async () => {
     if (!theme.trim()) {
@@ -48,22 +45,14 @@ export function ThemeInput({ onSubmit }: ThemeInputProps) {
         .filter(line => line.trim())
         .map(line => line.replace(/^\d+\.\s*\*\*|\*\*$/g, "").trim())
 
-      setHeadings(headingList)
-      setSelectedHeading("")
+      onSubmit(theme)
+      onHeadingsGenerated(headingList)
     } catch (err) {
       setError("見出しの生成中にエラーが発生しました。もう一度お試しください。")
       console.error("Error generating headings:", err)
     } finally {
       setIsLoading(false)
     }
-  }
-
-  const handleNext = () => {
-    if (!selectedHeading) {
-      setError("見出しを選択してください")
-      return
-    }
-    onSubmit(theme, selectedHeading)
   }
 
   return (
@@ -99,58 +88,8 @@ export function ThemeInput({ onSubmit }: ThemeInputProps) {
               "見出しを生成"
             )}
           </Button>
-          {headings.length > 0 && (
-            <div className="mt-6 space-y-4">
-              <div className="flex items-center justify-between">
-                <h3 className="text-lg font-semibold">生成された見出し候補：</h3>
-                <Button
-                  variant="outline"
-                  size="sm"
-                  onClick={generateHeadings}
-                  disabled={isLoading}
-                  className="flex items-center gap-2"
-                >
-                  {isLoading ? (
-                    <>
-                      <LoadingSpinner size="sm" />
-                      <span className="animate-pulse">再生成中...</span>
-                    </>
-                  ) : (
-                    "別の候補を生成"
-                  )}
-                </Button>
-              </div>
-              <RadioGroup
-                value={selectedHeading}
-                onValueChange={setSelectedHeading}
-                className="space-y-2"
-              >
-                {headings.map((heading, index) => (
-                  <label
-                    key={index}
-                    className="flex items-center space-x-2 p-3 rounded-md bg-secondary cursor-pointer hover:bg-secondary/80"
-                  >
-                    <RadioGroupItem value={heading} id={`heading-${index}`} />
-                    <span className="flex-1">{heading}</span>
-                  </label>
-                ))}
-              </RadioGroup>
-            </div>
-          )}
         </div>
       </CardContent>
-      {headings.length > 0 && (
-        <CardFooter>
-          <Button
-            onClick={handleNext}
-            disabled={!selectedHeading}
-            className="w-full flex items-center justify-center gap-2"
-          >
-            次へ進む
-            <ArrowRight className="h-4 w-4" />
-          </Button>
-        </CardFooter>
-      )}
     </Card>
   )
 }
